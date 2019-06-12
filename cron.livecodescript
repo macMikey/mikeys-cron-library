@@ -4,11 +4,13 @@ script "cron"
    local retrySeconds
    local crontab
    local logType
+   local maxnap
    constant defaultRetrySeconds=60
    constant defaultCrontab="./assets/crontab.txt"
    constant defaultLogType="cron"
+   constant defaultMaxNap=3600
 
-   constant waitForJobToAchieveSeconds=60 #if a job is running, how long to sleep CRON for before trying to run the next job again
+   constant colDelim="|" #and maybe it will change some day if we add a parameter...
 #</don't pre-assign values here b/c each launch of CRON will overwrite existing values set in the libraryStack handler>
 
 
@@ -35,6 +37,9 @@ on libraryStack
 
    put defaultLogType into logType
    if levureAppHasProperty("cron>logType") then put levureAppGet ("cron>logType") into logType
+
+   put defaultMaxNap into maxNap
+   if levureAppHasProperty("cron>maxnap") then put levureAppGet ("cron>maxnap") into maxnap
 end libraryStack
 
 
@@ -51,15 +56,14 @@ on CRON #manages jobs per the entries in the CRONTAB table in the db
 
    loggerLogMsg "CRON is starting",logType
    if the waitDepth > 1 then
-      loggerLogMsg "Something is waiting.  CRON will try again in"&&waitForJobToAchieveSeconds&&"seconds.",logtype
-      scheduleCron waitForJobToAchieveSeconds
+      loggerLogMsg "Something is waiting.  CRON will try again in"&&retrySeconds&&"seconds.",logtype
+      scheduleCron retrySeconds
       exit to top
    end if #the waitDepth>1
 
    put readCrontab() into crontabData
 
-   set the itemDelimiter to tab
-
+   set the itemDelimiter to colDelim
 
    put the seconds into theSeconds
 
@@ -76,13 +80,14 @@ on CRON #manages jobs per the entries in the CRONTAB table in the db
       sort cronjobs by item priorityCol of each #Prioritze jobs that can run now.  Sort is stable, so oldest highest priority jobs go first.
       put line 1 of cronjobs into cronjob #the job we're going to run
 
-      scheduleCron waitForJobToAchieveSeconds #schedule CRON, again.  Do this first in case something happens, and because LC is single-threaded.
+      scheduleCron retrySeconds #schedule CRON, again.  Do this first in case something happens, and because LC is single-threaded.
 
       put item nameCol of cronjob into eventName
       loggerLogMsg "Starting"&&eventName&".",logtype
       put item actionCol of cronjob into action
 
       do action #all that to finally do something.
+      if the result is not empty then loggerLogMsg the result,logType
 
       #<if we get here, assume success>
          #<compute next time event will run>
@@ -90,20 +95,19 @@ on CRON #manages jobs per the entries in the CRONTAB table in the db
             put the seconds + runEveryNSeconds into nextScheduledSeconds
             put timestamp(nextScheduledSeconds) into nextScheduledDateTimeString 
             loggerLogMsg eventName&&"seems to have achieved.  Marking and scheduling next run for"&&nextScheduledDateTimeString,logtype
-            scheduleCron runEveryNSeconds
             put longDateItems(nextScheduledSeconds) into nextScheduledDateItems #make crontab easier to read b/c dateItems can be truncated
          #</compute next time event will run>
 
          #<udpate crontab>
             #do it again b/c event may have taken a while
-            put readCrontab(false) into crontabData #don't convert the next launch dateItems to seconds
+            put readCrontab(false,false) into crontabData #don't trim the column data and don't convert the next launch dateItems to seconds
             put false into found
             put 1 into lineCounter
             put the number of lines in crontabData into numberOfLines
             repeat with i = 1 to numberOfLines
-               if item nameCol of line i of crontabData is eventName then
+               if trim(item nameCol of line i of crontabData) is eventName then
                   put true into found
-                  put nextScheduledDateItems into item launchAfterCol of line i of crontabData
+                  put space&nextScheduledDateItems&space into item launchAfterCol of line i of crontabData # add spaces to pad value to make it easier to read
                   exit repeat
                else #no match
                   #do nothing, just move on
@@ -117,56 +121,74 @@ on CRON #manages jobs per the entries in the CRONTAB table in the db
             end if #found
          #</udpate crontab>
       #</if we get here, assume success>
-      # If something else is scheduled to run now, no worries, CRON is scheduled to run again in waitForJobToAchieveSeconds
+      scheduleCron 1 #fire again in case something else is waiting to run.
    else # Nothing to do, go to sleep.
       #<get next scheduled job info.>
          if crontabData is empty then 
-            scheduleCron retrySeconds
+            scheduleCron maxNap
          else #not empty
+            sort lines of crontabData by item priorityCol of each
             sort lines of crontabData by item launchAfterCol of each
-            put line 1 of crontabData into nextJob
-            put item launchAfterCol of nextJob into nextScheduledSeconds
-            convert nextScheduledSeconds to seconds
-            put timestamp(nextScheduledSeconds) into nextScheduledDateTimeString
+            #<find the next enabled job to schedule>
+	            put 1 into i
+	            put false into foundOne
+	            repeat until foundOne or i>the number of lines in crontabData
+	            	if trim (item enabledCol of line i of crontabData) is not empty then
+	            		put true into foundOne
+	            	else #empty
+	            		add 1 to i
+	            	end if #trim (item enabledCol of line i of crontabData) is not empty
+	            end repeat #until foundOne or i>the number of lines in crontabData
+            #</find the next enabled job to schedule>
+            if foundOne then
+	            put line i of crontabData into nextJob
+	            put item launchAfterCol of nextJob into nextScheduledSeconds
+	            convert nextScheduledSeconds to seconds
+	            if the result is not empty then loggerLogMsg "Problem with:"&&nextJob & cr & the result, logType
+	            put timestamp(nextScheduledSeconds) into nextScheduledDateTimeString
 
-            put item nameCol of nextJob into eventName
+	            put item nameCol of nextJob into eventName
+
+			      loggerLogMsg "CRON suspending until"&&eventName&&", scheduled at:"&&nextScheduledDateTimeString&".",logType #CRON suspending until whateverTheEventNameIs, scheduled at 14:02:00.
+			      cancelTask "cron"
+			      scheduleCron nextScheduledSeconds-the seconds #wake up for next event
+	         else #nothing enabled to schedule
+	         	loggerlogmsg "No CRON jobs enabled.  CRON going to sleep."
+	         	scheduleCron maxNap
+	         end if #foundOne
          end if #crontabData is empty
       #</get next scheduled job info.>
 
-      loggerLogMsg "CRON suspending until"&&eventName&&", scheduled at:"&&nextScheduledDateTimeString&".",logType #CRON suspending until whateverTheEventNameIs, scheduled at 14:02:00.
-      cancelTask "cron"
-      scheduleCron nextScheduledSeconds-the seconds #wake up for next event
+	   #<log upcoming schedule, just because>
+	         delete line 1 of cronjobs #if it exists
+	         if cronjobs is not empty then
+	            put "Scheduled to run ASAP:"&cr into schedule
+	            repeat for each line cronjob in cronjobs
+	               put item priorityCol of cronjob into priority
+	               if priority is empty then put "N/A" into priority
+	               put "Priority:"&&priority & tab after schedule
+	               put item nameCol of cronjob& cr after schedule
+	            end repeat #for each line cronjob in cronjobs
+	            delete last line of schedule #trailing cr
+	            scheduleCron 1 #other jobs waiting, so run asap
+	         else #nothing pending, output regular schedule
+	            put "Upcoming schedule:"&cr into schedule
+	            sort lines of crontabData by item priorityCol of each #sort by priority second, next run time first
+	            sort lines of crontabData by item launchAfterCol of each #sort by priority second, next run time first.
+	            repeat for each line cronjob in crontabData
+	               if item 1 of cronjob is empty then next repeat #disabled
+	               put timestamp(item launchAfterCol of cronjob) & tab after schedule
+	               put item priorityCol of cronjob into priority
+	               if priority is empty then put "N/A" into priority
+	               put "Priority:"&&priority & tab after schedule
+	               put  item nameCol of cronjob & cr after schedule
+	            end repeat #for each line cronjob in crontabData
+	            delete last char of schedule #trailing cr
+	         end if #cronjobs is not empty
+
+	         loggerlogmsg(schedule),logType
+	   #</log upcoming schedule, just because>
    end if #it is not empty
-
-   #<log upcoming schedule, just because>
-         delete line 1 of cronjobs #if it exists
-         if cronjobs is not empty then
-            put "Scheduled to run ASAP:"&cr into schedule
-            repeat for each line cronjob in cronjobs
-               put item priorityCol of cronjob into priority
-               if priority is empty then put "N/A" into priority
-               put "Priority:"&&priority & tab after schedule
-               put item nameCol of cronjob& cr after schedule
-            end repeat #for each line cronjob in cronjobs
-            delete last line of schedule #trailing cr
-            scheduleCron 1 #other jobs waiting, so run asap
-         else #nothing pending, output regular schedule
-            put "Upcoming schedule:"&cr into schedule
-            sort lines of crontabData by item priorityCol of each #sort by priority second, next run time first
-            sort lines of crontabData by item launchAfterCol of each #sort by priority second, next run time first.
-            repeat for each line cronjob in crontabData
-               if item 1 of cronjob is empty then next repeat #disabled
-               put timestamp(item launchAfterCol of cronjob) & tab after schedule
-               put item priorityCol of cronjob into priority
-               if priority is empty then put "N/A" into priority
-               put "Priority:"&&priority & tab after schedule
-               put  item nameCol of cronjob & cr after schedule
-            end repeat #for each line cronjob in crontabData
-            delete last char of schedule #trailing cr
-         end if #cronjobs is not empty
-
-         loggerlogmsg(schedule),logType
-   #</log upcoming schedule, just because>
 
    loggerLogMsg "CRON is done",logType
    loggerLogMsg "--------------------------------------------------",logType
@@ -174,19 +196,37 @@ end CRON
 
 
 
-private function readCrontab
-   if the paramCount>=1 then put param(1) into convertToSeconds else put true into convertToSeconds
-   set the itemDelimiter to tab
+private function readCrontab #[convertToSecondsBool[,trimColumnsBool]]
+   if the paramCount>=1 then put param(1) into trimColumns else put true into trimColumns
+   if the paramCount>=2 then put param(2) into convertToSeconds else put true into convertToSeconds
+
+   set the itemDelimiter to colDelim
    if there is not a file crontab then return empty
    open file crontab
    read from file crontab until end
    put it into crontabData
    close file crontab
-   if convertToSeconds then
-      repeat with i = 1 to the number of lines in crontabData
-         convert item launchAfterCol of line i of crontabData to seconds
-      end repeat #with i = 1 to the number of lines in crontabData
-   end if #convertToSeconds
+
+
+   if trimColumns or convertToSeconds then # have some more work to do besides just returning the contents of the file
+      #<walk crontabData and optionally trim and convert>
+         repeat with i = 1 to the number of lines in crontabData
+            if convertToSeconds then 
+               put trim(item launchAfterCol of line i of crontabData) into item launchAfterCol of line i of crontabData #whitespace breaks CONVERT, so trim
+               convert item launchAfterCol of line i of crontabData to seconds
+               if the result is not empty then loggerLogMsg "Problem with:"&&line i of crontabData & cr & the result, logType
+            end if #convertToSeconds
+
+            if trimColumns then
+               repeat with j = 1 to the number of items in line i of crontabData
+                  put trim(item j of line i of crontabData) into item j of line i of crontabData
+               end repeat #for each item theColumn in theLine
+            end if #trimColumns
+
+         end repeat #for each line theLine in crontabData
+      #</walk crontabData and optionally trim and convert>
+   end if #trimColumns or convertToSeconds
+
    return crontabData
 end readCrontab
 
@@ -224,7 +264,7 @@ end cancelTask
 
 private command scheduleCron inNumberOfSeconds
    # Schedules a CRON run for the EARLIER of the next time it's already scheduled (if it's already scheduled) or inNumberOfSeconds.
-   put the seconds + inNumberOfSeconds into nextRun
+   put min(maxnap,inNumberOfSeconds) into inNumberOfSeconds #the most we'll nap is maxnap.  Otherwise, we only nap until the next event is scheduled to run.
    put the pendingMessages into theSchedule
    put false into scheduled
    repeat for each line theLine in theSchedule
@@ -239,3 +279,41 @@ private command scheduleCron inNumberOfSeconds
 
    if not scheduled then send "cron" to me in inNumberOfSeconds seconds
 end scheduleCron
+
+
+
+private function trim pWhat,pOpt_Position
+   /* trim Text
+   Syntax:
+   trim (pWhat,[pOpt_Position])
+   
+   Examples:
+   trim ("   This is a test.  ")  --> "This is a test."
+   trim ("   This is a test.  ","end") --"   This is a test."
+   
+   Description:
+   Removes white space (spaces, tabs, linefeeds, hard spaces, and returns) from
+   the beginning and end of a container, or optionally only from the beginning
+   (pass "left" or "begin") or end of a container (pass "right" or "end")
+   
+   Source:   
+   Ken Ray, sdtlib 1.0b
+   trim */
+   if the platform is "MacOS" then put numToChar(202) into tHardSpc
+else put numToChar(160) into tHardSpc
+if pOpt_Position="" then put "both" into pOpt_Position
+put (space & tab & cr & linefeed & tHardSpc) into tWhiteSpc
+if pOpt_Position is among the items of "both,left,begin" then
+   repeat
+   if char 1 of pWhat is not in tWhiteSpc then exit repeat
+else delete char 1 of pWhat
+end repeat
+end if
+if pOpt_Position is among the items of "both,right,end" then
+   repeat
+   if char -1 of pWhat is not in tWhiteSpc then exit repeat
+else delete char -1 of pWhat
+end repeat
+end if
+return pWhat
+end trim
