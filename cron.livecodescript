@@ -4,11 +4,9 @@ script "cron"
    local retrySeconds
    local crontab
    local logType
-   local maxnap
    constant defaultRetrySeconds=60
    constant defaultCrontab="./assets/crontab.txt"
    constant defaultLogType="cron"
-   constant defaultMaxNap=3600
 
    constant colDelim="|" #and maybe it will change some day if we add a parameter...
 #</don't pre-assign values here b/c each launch of CRON will overwrite existing values set in the libraryStack handler>
@@ -37,9 +35,6 @@ on libraryStack
 
    put defaultLogType into logType
    if levureAppHasProperty("cron>logType") then put levureAppGet ("cron>logType") into logType
-
-   put defaultMaxNap into maxNap
-   if levureAppHasProperty("cron>maxnap") then put levureAppGet ("cron>maxnap") into maxnap
 end libraryStack
 
 
@@ -62,6 +57,7 @@ on CRON #manages jobs per the entries in the CRONTAB table in the db
    end if #the waitDepth>1
 
    put readCrontab() into crontabData
+   if crontabData is empty then exit CRON # by design.  User can always re-invoke it after crontabData is populated, or they can install CRON as a job in crontab.txt
 
    set the itemDelimiter to colDelim
 
@@ -124,69 +120,64 @@ on CRON #manages jobs per the entries in the CRONTAB table in the db
       scheduleCron 1 #fire again in case something else is waiting to run.
    else # Nothing to do, go to sleep.
       #<get next scheduled job info.>
-         if crontabData is empty then 
-            scheduleCron maxNap
-         else #not empty
-            sort lines of crontabData by item priorityCol of each
-            sort lines of crontabData by item launchAfterCol of each
-            #<find the next enabled job to schedule>
-	            put 1 into i
-	            put false into foundOne
-	            repeat until foundOne or i>the number of lines in crontabData
-	            	if trim (item enabledCol of line i of crontabData) is not empty then
-	            		put true into foundOne
-	            	else #empty
-	            		add 1 to i
-	            	end if #trim (item enabledCol of line i of crontabData) is not empty
-	            end repeat #until foundOne or i>the number of lines in crontabData
-            #</find the next enabled job to schedule>
-            if foundOne then
-	            put line i of crontabData into nextJob
-	            put item launchAfterCol of nextJob into nextScheduledSeconds
-	            convert nextScheduledSeconds to seconds
-	            if the result is not empty then loggerLogMsg "Problem with:"&&nextJob & cr & the result, logType
-	            put timestamp(nextScheduledSeconds) into nextScheduledDateTimeString
+	      sort lines of crontabData by item priorityCol of each
+         sort lines of crontabData by item launchAfterCol of each
+         #<find the next enabled job to schedule>
+            put 1 into i
+            put false into foundOne
+            repeat until foundOne or i>the number of lines in crontabData
+            	if trim (item enabledCol of line i of crontabData) is not empty then
+            		put true into foundOne
+            	else #empty
+            		add 1 to i
+            	end if #trim (item enabledCol of line i of crontabData) is not empty
+            end repeat #until foundOne or i>the number of lines in crontabData
+         #</find the next enabled job to schedule>
+         if foundOne then
+            put line i of crontabData into nextJob
+            put item launchAfterCol of nextJob into nextScheduledSeconds
+            convert nextScheduledSeconds to seconds
+            if the result is not empty then loggerLogMsg "Problem with:"&&nextJob & cr & the result, logType
+            put timestamp(nextScheduledSeconds) into nextScheduledDateTimeString
 
-	            put item nameCol of nextJob into eventName
+            put item nameCol of nextJob into eventName
 
-			      loggerLogMsg "CRON suspending until"&&eventName&&", scheduled at:"&&nextScheduledDateTimeString&".",logType #CRON suspending until whateverTheEventNameIs, scheduled at 14:02:00.
-			      cancelTask "cron"
-			      scheduleCron nextScheduledSeconds-the seconds #wake up for next event
-	         else #nothing enabled to schedule
-	         	loggerlogmsg "No CRON jobs enabled.  CRON going to sleep."
-	         	scheduleCron maxNap
-	         end if #foundOne
-         end if #crontabData is empty
+		      loggerLogMsg "CRON suspending until"&&eventName&&", scheduled at:"&&nextScheduledDateTimeString&".",logType #CRON suspending until whateverTheEventNameIs, scheduled at 14:02:00.
+		      cancelTask "cron"
+		      scheduleCron nextScheduledSeconds-the seconds #wake up for next event
+         else #nothing enabled to schedule
+         	loggerlogmsg "No CRON jobs enabled.  CRON terminating."
+         end if #foundOne
       #</get next scheduled job info.>
 
 	   #<log upcoming schedule, just because>
-	         delete line 1 of cronjobs #if it exists
-	         if cronjobs is not empty then
-	            put "Scheduled to run ASAP:"&cr into schedule
-	            repeat for each line cronjob in cronjobs
-	               put item priorityCol of cronjob into priority
-	               if priority is empty then put "N/A" into priority
-	               put "Priority:"&&priority & tab after schedule
-	               put item nameCol of cronjob& cr after schedule
-	            end repeat #for each line cronjob in cronjobs
-	            delete last line of schedule #trailing cr
-	            scheduleCron 1 #other jobs waiting, so run asap
-	         else #nothing pending, output regular schedule
-	            put "Upcoming schedule:"&cr into schedule
-	            sort lines of crontabData by item priorityCol of each #sort by priority second, next run time first
-	            sort lines of crontabData by item launchAfterCol of each #sort by priority second, next run time first.
-	            repeat for each line cronjob in crontabData
-	               if item 1 of cronjob is empty then next repeat #disabled
-	               put timestamp(item launchAfterCol of cronjob) & tab after schedule
-	               put item priorityCol of cronjob into priority
-	               if priority is empty then put "N/A" into priority
-	               put "Priority:"&&priority & tab after schedule
-	               put  item nameCol of cronjob & cr after schedule
-	            end repeat #for each line cronjob in crontabData
-	            delete last char of schedule #trailing cr
-	         end if #cronjobs is not empty
+         delete line 1 of cronjobs #if it exists
+         if cronjobs is not empty then
+            put "Scheduled to run ASAP:"&cr into schedule
+            repeat for each line cronjob in cronjobs
+               put item priorityCol of cronjob into priority
+               if priority is empty then put "N/A" into priority
+               put "Priority:"&&priority & tab after schedule
+               put item nameCol of cronjob& cr after schedule
+            end repeat #for each line cronjob in cronjobs
+            delete last line of schedule #trailing cr
+            scheduleCron 1 #other jobs waiting, so run asap
+         else #nothing pending, output regular schedule
+            put "Upcoming schedule:"&cr into schedule
+            sort lines of crontabData by item priorityCol of each #sort by priority second, next run time first
+            sort lines of crontabData by item launchAfterCol of each #sort by priority second, next run time first.
+            repeat for each line cronjob in crontabData
+               if item 1 of cronjob is empty then next repeat #disabled
+               put timestamp(item launchAfterCol of cronjob) & tab after schedule
+               put item priorityCol of cronjob into priority
+               if priority is empty then put "N/A" into priority
+               put "Priority:"&&priority & tab after schedule
+               put  item nameCol of cronjob & cr after schedule
+            end repeat #for each line cronjob in crontabData
+            delete last char of schedule #trailing cr
+         end if #cronjobs is not empty
 
-	         loggerlogmsg(schedule),logType
+         loggerlogmsg(schedule),logType
 	   #</log upcoming schedule, just because>
    end if #it is not empty
 
@@ -264,7 +255,6 @@ end cancelTask
 
 private command scheduleCron inNumberOfSeconds
    # Schedules a CRON run for the EARLIER of the next time it's already scheduled (if it's already scheduled) or inNumberOfSeconds.
-   put min(maxnap,inNumberOfSeconds) into inNumberOfSeconds #the most we'll nap is maxnap.  Otherwise, we only nap until the next event is scheduled to run.
    put the pendingMessages into theSchedule
    put false into scheduled
    repeat for each line theLine in theSchedule
@@ -300,20 +290,20 @@ private function trim pWhat,pOpt_Position
    Ken Ray, sdtlib 1.0b
    trim */
    if the platform is "MacOS" then put numToChar(202) into tHardSpc
-else put numToChar(160) into tHardSpc
-if pOpt_Position="" then put "both" into pOpt_Position
-put (space & tab & cr & linefeed & tHardSpc) into tWhiteSpc
-if pOpt_Position is among the items of "both,left,begin" then
-   repeat
-   if char 1 of pWhat is not in tWhiteSpc then exit repeat
-else delete char 1 of pWhat
-end repeat
-end if
-if pOpt_Position is among the items of "both,right,end" then
-   repeat
-   if char -1 of pWhat is not in tWhiteSpc then exit repeat
-else delete char -1 of pWhat
-end repeat
-end if
-return pWhat
+	else put numToChar(160) into tHardSpc
+	if pOpt_Position="" then put "both" into pOpt_Position
+	put (space & tab & cr & linefeed & tHardSpc) into tWhiteSpc
+	if pOpt_Position is among the items of "both,left,begin" then
+	   repeat
+	   	if char 1 of pWhat is not in tWhiteSpc then exit repeat
+			else delete char 1 of pWhat
+		end repeat
+	end if
+	if pOpt_Position is among the items of "both,right,end" then
+	   repeat
+	   	if char -1 of pWhat is not in tWhiteSpc then exit repeat
+			else delete char -1 of pWhat
+		end repeat
+	end if
+	return pWhat
 end trim

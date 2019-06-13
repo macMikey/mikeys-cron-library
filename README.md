@@ -1,4 +1,3 @@
-
 # Mikey's CRON Library
 ## A library for a CRON-style feature in your Levure project
 CRON pulls its schedule from a single "crontab" file, and updates that same file each time that a job achieves with the next earliest time the job should be run again.
@@ -7,6 +6,7 @@ CRON is designed to be used as a library in Levure projects.
 ## Contents
 
 * [Background](#background)
+* [CAUTION](#caution)
 * [Installation](#installation)
 * [Initializing CRON](#initializing)
 * [Specifying settings in app.yml](#app.yml-parameters)
@@ -24,6 +24,18 @@ You can similarly schedule CRON to wake and run occasionally, even if there is n
 
 As LiveCode is single-threaded, CRON will only be able to launch a single job at a time.
 It will check the `waitDepth` to make sure no other tasks or handlers are pending or in process before launching a job.
+
+
+## CAUTION
+**CAPRICIOUS CRONJOBS CAN CAUSE CALAMITOUS CATASTROPHES, K?**
+Cronjobs can be added, modified, or deleted by anyone who can modify your crontab file, even after your app is signed, built, approved, and distributed.
+**CRON does not attempt to limit or control the scheduling of arbitrary code.
+CRON will execute whatever commands are in the crontab file.
+CRON can be used to sideload code.**
+This allows you as a developer to debug your app on the fly, patch it, add or disable features, or write and execute additional code, including adding frontscripts and backscripts.
+**IT CAN THEREFORE BE DANGEROUS** as anyone who can edit the crontab file can abuse it to add arbitrary code and get your app to execute that code.
+It is possible for CRON to be abused to insert keyloggers, popovers, or other malware.  It can also be accidentally abused to modify or delete files, databases, 
+You should ensure that your crontab file cannot be modified by any untrusted person or user of your app.
 
 
 ## Installation
@@ -44,7 +56,7 @@ To pre-configure CRON with your `app.yml` file.
 | `retrySeconds` | How long to wait to see if it's ok to launch a job in seconds if another job is already running (default 60) |
 | `path` | Path to the `crontab.txt` file relative to `app.yml` (default ./assets/crontab.txt) |
 | `logType` | The type/label CRON will use when logging messages (default `cron`) |
-| `maxNap` | The maximum number of seconds CRON should sleep before waking up to check `crontab.txt` (default 3600, i.e. one hour) |
+
 
 ### Example:
 ```
@@ -54,7 +66,6 @@ cron:
    retrySeconds: 30
    path: ~/someRandomFolder/my_cronjobs.txt
    logType: developer
-   maxNap: 86400
 ```
 
 
@@ -91,13 +102,13 @@ X	| Extra CRON |		1969,12,31,19,0,0,4 |	cron	| 3600|	Makes CRON run hourly wheth
 This will not stop CRON from launching when it thinks it has a job to do, it will simply ensure that it also runs at whatever interval you set.
 
 *Discussion:*
-• Anything but empty in the first item enables the job.
-• I called my job "Extra CRON", just because.  There is no reason why you can't just call it "cron", if you wish.
-• The priority is optional, so I left it alone.  You could make it "Z" or "999999", etc. to give it a lower priority than your other jobs if you wish.
-• The "Run After DateItems" column is just some time in the past so my Extra CRON job gets into the schedule.
-• "cron" is the command being called
-• 3600 seconds is one hour.
-• The rest is comment.
+* Anything but empty in the first item enables the job.
+* I called my job "Extra CRON", just because.  There is no reason why you can't just call it "cron", if you wish.
+* The priority is optional, so I left it alone.  You could make it "Z" or "999999", etc. to give it a lower priority than your other jobs if you wish.
+* The "Run After DateItems" column is just some time in the past so my Extra CRON job gets into the schedule.
+* "cron" is the command being called
+* 3600 seconds is one hour.
+* The rest is comment.
 
 ## Logging
 CRON uses the Levure logging functions.  It will post messages using the `cron` log type by default, although you can override that in the `app.yml` file.
@@ -123,4 +134,3 @@ That's it.  Call `cron`.  It loads cronjobs from the crontab table and fires the
 You can also manually invoke `cron` at any time to force it to re-read your crontab file and reschedule jobs.  Otherwise, CRON will sleep until what it thinks is its next-scheduled job.
 
 You can also schedule CRON to run regularly, even if no other job is scheduled to run, by [adding cron to your crontab file](#adding-cron-to-your-crontab-file).
-
