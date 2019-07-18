@@ -97,7 +97,7 @@ Yep   |smile|	ABC | 2019,05,21,23,00,00,3 |	put "smile"	|300	|Notice that you ca
 ## Adding CRON to your crontab file
 If for whatever reason you want to supplement CRON's scheduling so that it runs periodically whether it thinks it needs to or not, you can add the following line to your crontab file (for example):
 ```
-X	| Extra CRON |		1969,12,31,19,0,0,4 |	cron	| 3600|	Makes CRON run hourly whether it needs to or not
+X	| Extra CRON |	|	1969,12,31,19,0,0,4 |	cron	| 3600|	Makes CRON run hourly whether it needs to or not
 ```
 This will not stop CRON from launching when it thinks it has a job to do, it will simply ensure that it also runs at whatever interval you set.
 
