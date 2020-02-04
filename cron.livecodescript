@@ -73,7 +73,7 @@ on CRON #manages jobs per the entries in the CRONTAB table in the db
 
 
    if cronjobs is not empty then #have at least one job that can run
-      sort cronjobs by item priorityCol of each #Prioritze jobs that can run now.  Sort is stable, so oldest highest priority jobs go first.
+      sort cronjobs ascending numeric by item priorityCol of each #Prioritze jobs that can run now.  Sort is stable, so oldest highest priority jobs go first.
       put line 1 of cronjobs into cronjob #the job we're going to run
 
       scheduleCron retrySeconds #schedule CRON, again.  Do this first in case something happens, and because LC is single-threaded.

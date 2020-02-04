@@ -79,7 +79,7 @@ Columns are:
 |------------|---------------|
 | Enabled | (optional) If the column is not empty, the job is enabled.  If the column is empty, the job is disabled. |
 | Event Name | Name of the job - must be unique. |
-| Priority | (optional) Alphanumeric value used to sort jobs when multiple jobs are ready to be launched.  Priority does not have to be unique. |
+| Priority | (optional) Numeric value used to sort jobs when multiple jobs are ready to be launched.  Priority does not have to be unique. |
 | Launch After | The earliest the job should next launch.  DateItems are used as they are easier to read and manually write than some other date/time formats, such as seconds.  The dateItems format is year,month,day,hour,minute,second,dayOfTheWeek (but dayOfTheWeek is for informational purposes only, and has no effect on anything).  Timezone is assumed to be local.  |
 | Action | LiveCode command CRON should execute |
 | Next Run | Number of seconds after previous run achieves before job should launch again. |
@@ -87,24 +87,24 @@ Columns are:
 
 ### Example:
 ```
-X | pinger | 2019,5,21,22,38,26,3 | put "heartbeat" | 60	#I included the "#" just to make the comment easier to spot, but it is unnecessary.
+X | pinger | |2019,5,21,22,38,26,3 | put "heartbeat" | 60	#I included the "#" just to make the comment easier to spot, but it is unnecessary.
 :-) | test | 1 | 2019,05,22,08,00,00,4 | sendEmail| 38400 |					DateItems are year,month,day,hour,minute,second,dayOfTheWeek (but dayOfWeek doesn't do anything, so don't worry about setting it)
 Enabled	|	hello|1|2019,05,22,08,00,00,4|someScriptToCall|3600|In this case, we will have a tie since the priority and launch-after times are the same, so CRON will choose the order.
-Yep   |smile|	ABC | 2019,05,21,23,00,00,3 |	put "smile"	|300	|Notice that you can also use strings in your priority/sort order
-	| boomies |		2018,07,04,22,00,00,0 |	send "lightFuse" to button "Launch Fireworks" of card "Independence Day" of stack "Celebration"	|0|	Since the first column is empty, this job is disabled.
+Yep   |smile|	42 | 2019,05,21,23,00,00,3 |	put "smile"	|300	|Notice that you can also use strings in your priority/sort order
+	| boomies ||		2018,07,04,22,00,00,0 |	send "lightFuse" to button "Launch Fireworks" of card "Independence Day" of stack "Celebration"	|0|	Since the first column is empty, this job is disabled.
 ```
 
 ## Adding CRON to your crontab file
 If for whatever reason you want to supplement CRON's scheduling so that it runs periodically whether it thinks it needs to or not, you can add the following line to your crontab file (for example):
 ```
-X	| Extra CRON |		1969,12,31,19,0,0,4 |	cron	| 3600|	Makes CRON run hourly whether it needs to or not
+X	| Extra CRON |	1 |	1969,12,31,19,0,0,4 |	cron	| 3600|	Makes CRON run hourly whether it needs to or not
 ```
 This will not stop CRON from launching when it thinks it has a job to do, it will simply ensure that it also runs at whatever interval you set.
 
 *Discussion:*
 * Anything but empty in the first item enables the job.
 * I called my job "Extra CRON", just because.  There is no reason why you can't just call it "cron", if you wish.
-* The priority is optional, so I left it alone.  You could make it "Z" or "999999", etc. to give it a lower priority than your other jobs if you wish.
+* The priority is optional, so I left it alone.  You could make it 999999, etc. to give it a lower priority than your other jobs if you wish.
 * The "Run After DateItems" column is just some time in the past so my Extra CRON job gets into the schedule.
 * "cron" is the command being called
 * 3600 seconds is one hour.
