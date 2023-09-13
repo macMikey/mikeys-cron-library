@@ -185,7 +185,7 @@ eventName | text | Mandatory | Name of the job
 priority | text | Optional | To break ties, **CRON** sorts by priority, so it can be anything
 firstRunInNSeconds | real | Mandatory | How long from now to execute the event the first time 
 action | text | Mandatory | Command you want to have **CRON** run
-recurring | boolean | Mandatory | Does the job repeat or is it a one-time thing 
+runEveryNSeconds | integer | optional | How often to repeat (if repeating) 
 groupName | text | optional | Makes it easier to mass-cancel jobs, e.g. jobs for a card.
 
 
